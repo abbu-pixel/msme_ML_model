@@ -1,0 +1,59 @@
+<!-- templates/detail.html -->
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Machine {{ machine_id }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="p-4">
+  <div class="container">
+    <a href="/" class="btn btn-link">← Back</a>
+    <h2>Machine {{ machine_id }}</h2>
+    <div class="row mb-3">
+      <div class="col-md-4">
+        <div id="statusBox" class="p-3 border rounded">Loading...</div>
+      </div>
+      <div class="col-md-8 text-end">
+        <a id="reportBtn" class="btn btn-outline-secondary" href="/report/{{ machine_id }}">📄 Download Report</a>
+      </div>
+    </div>
+
+    <canvas id="rulChart" height="120"></canvas>
+    <script>
+      const machineId = {{ machine_id }};
+      let rulChart = null;
+
+      async function fetchData() {
+        const res = await fetch(`/api/machine/${machineId}`);
+        const cur = await res.json();
+        const res2 = await fetch(`/api/machine/${machineId}/history?n=200`);
+        const hist = await res2.json();
+
+        // update status box
+        const sb = document.getElementById('statusBox');
+        sb.innerHTML = `<h5>Status: ${cur.status ?? '-'}</h5>
+                        <p>RUL: ${cur.rul ?? '-'}</p>
+                        <p>Health: ${cur.health ?? '-'}%</p>
+                        <p>Anomalies: ${(cur.anomalies || []).join(', ') || 'None'}</p>`;
+
+        // prepare chart data
+        const labels = hist.map(h => h.cycle ?? '-');
+        const data = hist.map(h => h.rul ?? 0);
+
+        const ctx = document.getElementById('rulChart').getContext('2d');
+        if (rulChart) rulChart.destroy();
+        rulChart = new Chart(ctx, {
+          type: 'line',
+          data: { labels: labels, datasets: [{ label: 'Predicted RUL', data: data, fill:false, tension:0.1 }]},
+          options: { scales: { x: { display: true }, y: { beginAtZero: false } } }
+        });
+      }
+
+      fetchData();
+      setInterval(fetchData, 2500);
+    </script>
+  </div>
+</body>
+</html>

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>🏭 MSME AI Model Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body { background: #f0f2f5; font-family: 'Segoe UI', sans-serif; }
+h1 { text-align: center; margin-bottom: 2rem; color: #0d6efd; }
+.machine-card { background: #fff; padding: 20px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+.machine-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); transition: 0.2s; }
+.status-badge { border-radius: 20px; padding: 5px 12px; color: #fff; font-size: 0.9rem; }
+.summary-card { text-align: center; padding: 20px; border-radius: 16px; color: #fff; margin-bottom: 20px; box-shadow: 0 3px 10px rgba(0,0,0,0.1); }
+.summary-value { font-size: 1.8rem; font-weight: bold; }
+canvas { margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="container py-5">
+<h1>🏭 MSME AI Model Dashboard</h1>
+
+<!-- Summary -->
+<div class="row mb-4">
+  <div class="col-md-3">
+    <div class="summary-card bg-primary">
+      <i class="bi bi-gear-wide-connected fs-2"></i>
+      <p>Total Machines</p>
+      <p class="summary-value" id="total-machines">0</p>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="summary-card bg-success">
+      <i class="bi bi-check-circle fs-2"></i>
+      <p>OK</p>
+      <p class="summary-value" id="ok-machines">0</p>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="summary-card bg-warning text-dark">
+      <i class="bi bi-exclamation-triangle fs-2"></i>
+      <p>Warning</p>
+      <p class="summary-value" id="warning-machines">0</p>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="summary-card bg-danger">
+      <i class="bi bi-x-circle fs-2"></i>
+      <p>Critical</p>
+      <p class="summary-value" id="critical-machines">0</p>
+    </div>
+  </div>
+</div>
+
+<!-- Machines -->
+<div class="row" id="machine-cards"></div>
+</div>
+
+<script>
+const healthCharts={}, rulCharts={}, tempCharts={}, vibCharts={}, presCharts={};
+
+async function fetchMachines() {
+  try {
+    const res = await fetch("/api/machines");
+    const data = await res.json();
+    const container = document.getElementById("machine-cards");
+
+    let total=0, ok=0, warning=0, critical=0;
+
+    Object.keys(data).forEach(machine => {
+      const m = data[machine];
+      total++;
+      if(m.status==="OK") ok++; else if(m.status==="Warning") warning++; else if(m.status==="Critical") critical++;
+
+      const color = m.status==="OK" ? "#198754" : m.status==="Warning" ? "#ffc107" : "#dc3545";
+      const anomalyBadge = m.anomaly ? ' <span class="badge bg-danger">⚠️ Anomaly</span>' : '';
+
+      // Create card only if it doesn't exist
+      if(!document.getElementById(`chart-health-${machine}`)) {
+        const card = document.createElement('div');
+        card.className = 'col-md-4';
+        card.innerHTML = `
+          <div class="machine-card">
+            <h4>${machine}${anomalyBadge}</h4>
+            <span class="status-badge" style="background-color:${color}">${m.status}</span>
+            <p>Health: ${m.health}% | RUL: ${m.rul} cycles</p>
+            <p>Temp: ${m.temperature} °C | Vibration: ${m.vibration} | Pressure: ${m.pressure}</p>
+            <p>Hours: ${m.working_hours} | Confidence: ${(m.confidence*100).toFixed(1)}%</p>
+
+            <canvas id="chart-health-${machine}" height="80"></canvas>
+            <canvas id="chart-rul-${machine}" height="80"></canvas>
+            <canvas id="chart-temp-${machine}" height="80"></canvas>
+            <canvas id="chart-vib-${machine}" height="80"></canvas>
+            <canvas id="chart-pres-${machine}" height="80"></canvas>
+
+            <a class="btn btn-outline-primary btn-sm mt-2" href="/api/report_pdf?machine=${machine}">
+              <i class="bi bi-download"></i> Download PDF
+            </a>
+          </div>
+        `;
+        container.appendChild(card);
+      }
+
+      // Helper to update/create charts
+      function updateChart(chartDict, id, label, dataArr, color, min=0, max=100){
+        const ctx = document.getElementById(id).getContext('2d');
+        if(!chartDict[machine]){
+          chartDict[machine] = new Chart(ctx, {
+            type:'line',
+            data:{labels:dataArr.map((_,i)=>i+1), datasets:[{label:label,data:dataArr,borderColor:color,backgroundColor:color+'33',tension:0.3,fill:true}]},
+            options:{plugins:{legend:{display:false}}, scales:{y:{min:min,max:max}}}
+          });
+        } else {
+          chartDict[machine].data.datasets[0].data = dataArr;
+          chartDict[machine].update();
+        }
+      }
+
+      // Update all charts
+      updateChart(healthCharts, `chart-health-${machine}`, 'Health %', m.history.health, color,0,100);
+      updateChart(rulCharts, `chart-rul-${machine}`, 'RUL', m.history.rul, '#0d6efd',0,250);
+      updateChart(tempCharts, `chart-temp-${machine}`, 'Temp °C', m.history.temperature, '#fd7e14',50,100);
+      updateChart(vibCharts, `chart-vib-${machine}`, 'Vibration', m.history.vibration, '#6f42c1',0,1);
+      updateChart(presCharts, `chart-pres-${machine}`, 'Pressure', m.history.pressure, '#0dcaf0',0,12);
+
+    });
+
+    // Update summary
+    document.getElementById("total-machines").textContent = total;
+    document.getElementById("ok-machines").textContent = ok;
+    document.getElementById("warning-machines").textContent = warning;
+    document.getElementById("critical-machines").textContent = critical;
+
+  } catch(err){ console.error("Error fetching machines:", err); }
+}
+
+// Initial fetch + refresh
+fetchMachines();
+setInterval(fetchMachines, 5000);
+</script>
+</body>
+</html>
