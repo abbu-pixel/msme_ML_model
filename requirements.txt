@@ -1,6 +1,6 @@
-flask
-pandas
-numpy
-scikit-learn
-joblib
-reportlab
+numpy==1.26.2
+pandas==2.1.1
+matplotlib==3.8.1
+streamlit==1.28.1
+reportlab==4.1.0
+scikit-learn==1.3.0
