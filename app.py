@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objs as go
 from io import BytesIO
 from reportlab.pdfgen import canvas
 import model  # your upgraded model.py
@@ -34,7 +34,7 @@ def create_pdf(machine_data, machine_name):
     c.drawString(50, 800, f"{machine_name} - Machine Report")
     c.setFont("Helvetica", 12)
     y = 760
-    for key in ["health", "rul", "predicted_rul", "temperature", "vibration"]:
+    for key in ["health", "rul", "temperature", "vibration", "pressure"]:
         c.drawString(50, y, f"{key.capitalize()}: {machine_data.get(key, 'N/A')}")
         y -= 20
     c.save()
@@ -52,19 +52,27 @@ for machine_name in machines:
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Health (%)", machine_data["health"])
     col2.metric("RUL (hrs)", machine_data["rul"])
-    col3.metric("Predicted RUL (hrs)", machine_data["predicted_rul"])
+    col3.metric("Confidence", f"{machine_data['confidence']*100:.1f}%")
     col4.metric("Status", machine_data["status"])
 
-    # Graphs
-    sensors = ["health", "rul", "temperature", "vibration"]
-    fig, ax = plt.subplots(2,2, figsize=(10,6))
-    ax = ax.flatten()
-    for i, sensor in enumerate(sensors):
+    # Interactive Graphs with Plotly
+    sensors = ["health", "rul", "temperature", "vibration", "pressure"]
+    fig = go.Figure()
+    for sensor in sensors:
         history = machine_data["history"].get(sensor, [])
-        ax[i].plot(history, label=sensor)
-        ax[i].set_title(sensor)
-        ax[i].legend()
-    st.pyplot(fig)
+        fig.add_trace(go.Scatter(
+            y=history,
+            mode="lines+markers",
+            name=sensor.capitalize()
+        ))
+    fig.update_layout(
+        title=f"{machine_name} - Sensor Trends",
+        xaxis_title="Time Steps",
+        yaxis_title="Values",
+        template="plotly_white",
+        legend=dict(orientation="h", y=-0.3)
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     # Anomaly
     if machine_data["anomaly"]:
@@ -81,4 +89,4 @@ for machine_name in machines:
     )
 
 st.markdown("---")
-st.info("Dashboard auto-refreshes every 5 seconds.")
+st.info("Dashboard auto-refreshes every 5 seconds. Interactive graphs powered by Plotly 🚀")
