@@ -2,6 +2,7 @@ import numpy as np
 import random
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import IsolationForest
+from sklearn.metrics import r2_score
 
 TIME_STEPS = 40
 machine_states = {}
@@ -19,60 +20,73 @@ def init_machine(machine_name, status_type, mode):
         "mode": mode,
         "health_trend": [health],
         "rul_trend": [rul],
-        "temperature_trend": [70 + random.uniform(-2,2)],
-        "vibration_trend": [0.2 + random.uniform(-0.05,0.05)],
+        "temperature_trend": [70 + random.uniform(-2, 2)],
+        "vibration_trend": [0.2 + random.uniform(-0.05, 0.05)],
     }
 
 def simulate_sensor_trends():
     global machine_states
-    predefined_status = ["OK","Warning","Critical"]
-    failure_modes = ["thermal","mechanical","hydraulic"]
+    predefined_status = ["OK", "Warning", "Critical"]
+    failure_modes = ["thermal", "mechanical", "hydraulic"]
 
+    # Initialize machines once
     if not machine_states:
         for i, status in enumerate(predefined_status, 1):
-            mode = failure_modes[i-1]
+            mode = failure_modes[i - 1]
             machine_states[f"Machine_{i}"] = init_machine(f"Machine_{i}", status, mode)
 
     results = {}
     for name, state in machine_states.items():
-        # Degrade health
+        # --- Degrade health ---
         new_health = max(5, state["health_trend"][-1] - random.uniform(0.05, 0.3))
         state["health_trend"].append(new_health)
 
-        # RUL countdown
+        # --- RUL countdown ---
         new_rul = max(0, state["rul_trend"][-1] - random.uniform(0.5, 1.0))
         state["rul_trend"].append(new_rul)
 
-        # Sensor updates
-        new_temp = 70 + (100-new_health)*0.25 + random.uniform(-0.5,0.5)
-        new_vib = 0.2 + (100-new_health)*0.01 + random.uniform(-0.01,0.01)
+        # --- Sensor updates ---
+        new_temp = 70 + (100 - new_health) * 0.25 + random.uniform(-0.5, 0.5)
+        new_vib = 0.2 + (100 - new_health) * 0.01 + random.uniform(-0.01, 0.01)
         state["temperature_trend"].append(new_temp)
         state["vibration_trend"].append(new_vib)
 
-        # Predict RUL using last 10 steps
-        X = np.arange(len(state["rul_trend"][-10:])).reshape(-1,1)
+        # --- Predict RUL using last 10 steps ---
+        X = np.arange(len(state["rul_trend"][-10:])).reshape(-1, 1)
         y = np.array(state["rul_trend"][-10:])
         model = LinearRegression()
         model.fit(X, y)
         predicted_rul = max(0, model.predict(np.array([[10]]))[0])
 
-        # Anomaly detection
-        iso = IsolationForest(contamination=0.1)
-        data = np.array(state["temperature_trend"][-10:]+state["vibration_trend"][-10:]).reshape(-1,2)
+        # Confidence from regression fit (R² score)
+        if len(y) > 1:
+            r2 = r2_score(y, model.predict(X))
+            confidence = max(0.0, min(1.0, r2))  # clamp between 0 and 1
+        else:
+            confidence = 0.9  # default
+
+        # --- Anomaly detection ---
         try:
-            anomaly = iso.fit_predict(data.reshape(-1,2))[-1] == -1
+            features = np.column_stack([
+                state["temperature_trend"][-10:], 
+                state["vibration_trend"][-10:]
+            ])
+            iso = IsolationForest(contamination=0.1)
+            anomaly = iso.fit_predict(features)[-1] == -1
         except:
             anomaly = False
 
+        # --- Store results ---
         results[name] = {
             "status": state["status"],
             "mode": state["mode"],
-            "health": round(new_health,1),
-            "rul": round(new_rul,1),
-            "predicted_rul": round(predicted_rul,1),
-            "temperature": round(new_temp,1),
-            "vibration": round(new_vib,2),
+            "health": round(new_health, 1),
+            "rul": round(new_rul, 1),
+            "predicted_rul": round(predicted_rul, 1),
+            "temperature": round(new_temp, 1),
+            "vibration": round(new_vib, 2),
             "anomaly": anomaly,
+            "confidence": round(confidence, 2),
             "history": {
                 "health": state["health_trend"],
                 "rul": state["rul_trend"],
